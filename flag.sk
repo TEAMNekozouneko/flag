@@ -1,0 +1,701 @@
+Variables:
+    {flag.general::status} = "waiting"
+
+command /flag [<text>] [<text>]:
+    permission: admin
+    permission message: &c権限がありません。
+    trigger:
+        if arg-1 is not set:
+            flag_show_help(player)
+        else if arg-1 is "setlobby":
+            flag_set_lobby(player)
+        else if arg-1 is "setspawn":
+            if arg-2 is not set:
+                flag_show_help(player)
+            else if arg-2 is "red" or "blue":
+                flag_set_spawn(player, arg-2)
+            else:
+                flag_show_help(player)
+        else if arg-1 is "setflag":
+            if arg-2 is not set:
+                flag_show_help(player)
+            else if arg-2 is "red" or "blue":
+                flag_set_flag(player, arg-2)
+            else:
+                flag_show_help(player)
+        else if arg-1 is "setround":
+            flag_set_round(player, arg-2)
+        else if arg-1 is "settime":
+            flag_set_time(player, arg-2)
+        else if arg-1 is "start":
+            flag_game_start(player)
+        else if arg-1 is "stop":
+            flag_game_stop(player)
+        else:
+            flag_show_help(player)
+
+on quit:
+    if {flag.general::status} is not "running":
+        flag_leave(player)
+    else:
+        if {flag.general::taken::red} is player:
+            set glowing of player to false
+            flag_drop("red", location of player)
+        else if {flag.general::taken::blue} is player:
+            set glowing of player to false
+            flag_drop("blue", location of player)
+
+command /admin_flag_join [<player>]:
+    permission: admin
+    trigger:
+        flag_join(arg-1)
+
+on join:
+    if {flag.general::status} is "running":
+        if metadata value "flag_team" of player is not set:
+            flag_join(player)
+            set {_t} to metadata value "flag_team" of player
+            teleport player to location of {flag.general::spawn::%{_t}%}
+            flag_equip(player, {_t})
+            set player's max health to 3
+            give unbreakable diamond sword named "&aダイヤの剣" with lore "&71ハート分削ることができる。" to player
+            give unbreakable bow named "&a弓" with lore "&7一発で相手を倒すことができる。" to player
+            give an arrow to player
+            set metadata value "flag_ks" of player to 0
+        else:
+            set {_t} to metadata value "flag_team" of player
+            if {_t} is "red":
+                set player's tab list name to "&c%player%"
+            else if {_t} is "blue":
+                set player's tab list name to "&b%player%"
+
+    else:
+        flag_leave(player)
+        if {flag.general::status} is "waiting":
+            flag_join(player)
+        else:
+            teleport player to location of {flag.general::lobby}
+    setup skoreboard for player
+    wait 3 second
+    send "&7------------ :&8[&bルール&8]&7: ------------" to player
+    send "&3&l・&b自分のチームの旗を相手にとられないように守る" to player
+    send "&3&l・&b相手のチームの旗を取り、自分の旗の場所へ持っていく" to player
+    send "&3&l・&b弓は1発で相手を倒すことができる。" to player
+    send "&3&l・&b3キルストリーク以上は、ショットガンがもらえる。" to player
+
+on tab complete of "/flag":
+    add "setlobby" to tab completions for position 1
+    add "setspawn" to tab completions for position 1
+    add "setflag" to tab completions for position 1
+    add "settime" to tab completions for position 1
+    add "setround" to tab completions for position 1
+    add "start" to tab completions for position 1
+    add "stop" to tab completions for position 1
+    if tab arg-1 is "setspawn":
+        add "red" to tab completions for position 2
+        add "blue" to tab completions for position 2
+    else if tab arg-1 is "setflag":
+        add "red" to tab completions for position 2
+        add "blue" to tab completions for position 2
+
+on inventory click:
+    if {flag.general::status} is "running":
+        if event-item is an armor or blue standing banner or red standing banner:
+            cancel event
+
+on damage:
+    if attacker is a player:
+        if victim is a player:
+            if attacker is not victim:
+                set {_atk} to metadata value "flag_team" of attacker
+                set {_vic} to metadata value "flag_team" of victim
+                if {_atk} is {_vic}:
+                    cancel event
+                else:
+                    if {flag.general::status} is "running":
+                        if name of attacker's tool is "&aダイヤの剣":
+                            set damage to 1
+                        else if event-damagecause is projectile:
+                            set damage to 6
+                    else:
+                        cancel event
+            else:
+                cancel event
+
+on hunger meter change:
+    set player's food level to 19
+
+on drop:
+    cancel event
+
+on pickup:
+    cancel event
+
+on death:
+    if victim is a player:
+        cancel event
+        broadcast "&c%victim%&7は&a%attacker%&7によって倒された。"
+        set {_team} to metadata value "flag_team" of victim
+        set {_loc} to location of victim
+        set {_temp} to metadata value "flag_ks" of attacker
+        set metadata value "flag_ks" of attacker to {_temp}+1
+        set metadata value "flag_ks" of victim to 0
+        wait a tick
+        teleport victim to location of {flag.general::spawn::%{_team}%}
+        flag_equip(victim, {_team})
+        set victim's health to victim's max health
+        set glowing of victim to false
+        if {flag.general::taken::red} is victim:
+            flag_drop("red", {_loc})
+        else if {flag.general::taken::blue} is victim:
+            flag_drop("blue", {_loc})
+        if metadata value "flag_ks" of attacker = 3:
+            set {_id} to "shotgun"
+            send "%{gun.dname::%{_id}%}%&aを入手しました。" to attacker
+            send "&4&l! &6%attacker%&cがキルストリークで&e&lショットガン&cを手に入れた！" to all players
+            give {gun.itemdata::%{_id}%} to attacker
+            set {gun.playerdata.%attacker%::ammo::%{_id}%} to {gun.maxammo::%{_id}%}
+        if metadata value "flag_ks" of attacker > 3:
+            set {_id} to "shotgun"
+            add 1 to {gun.playerdata.%attacker%::ammo::%{_id}%}
+
+function flag_drop(team: text, loc: location):
+    if {_team} is "red":
+        send "&2&l! &c&l赤チーム&aの旗が落ちた！" to all players
+        spawn an armor stand at block 2 under {_loc} with nbt compound from "{Invisible:1b, Marker:1b}"
+        set {_a} to last spawned armor stand
+        set helmet of {_a} to red standing banner
+        set glowing of {_a} to true
+        clear {flag.general::taken::red}
+        set {flag.general::drop::red} to true
+    else if {_team} is "blue":
+        send "&2&l! &b&l青チーム&aの旗が落ちた！" to all players
+        spawn an armor stand at block 2 under {_loc} with nbt compound from "{Invisible:1b, Marker:1b}"
+        set {_a} to last spawned armor stand
+        set helmet of {_a} to blue standing banner
+        set glowing of {_a} to true
+        clear {flag.general::taken::blue}
+        set {flag.general::drop::blue} to true
+
+every 5 tick:
+    if {flag.general::status} is "running":
+        loop all players in radius 2 around {flag.general::flag::red}:
+            if metadata value "flag_team" of loop-value is not "red":
+                if {flag.general::taken::red} and {flag.general::drop::red} is not set:
+                    set {flag.general::taken::red} to loop-player
+                    set {_t} to flag_convert_team2string("red")
+                    send "&4&l! &6%loop-player%&cが%{_t}%&cの旗を取った！" to all players
+                    set helmet of loop-player to red standing banner
+                    set glowing of loop-player to true 
+                    play sound "block.anvil.land" to all players
+                    send title "&a旗をとった！" to {flag.team::blue::players::*}
+                    send title "&c旗をとられた！" to {flag.team::red::players::*}
+            else if {flag.general::taken::blue} is loop-player:
+                if {flag.general::taken::red} and {flag.general::drop::red} is not set:
+                    add 1 to {flag.general::point::red}
+                    send "&2&l! &6%loop-player%&aが&c&l赤チーム&aに点数を入れた！" to all players
+                    flag_equip(loop-player, "red")
+                    set glowing of loop-player to false
+                    clear {flag.general::taken::blue}
+                else:
+                    send action bar "&4&l! &c自陣の旗がとられているため、点数を入れることができない" to loop-player
+        loop all players in radius 2 around {flag.general::flag::blue}:
+            if metadata value "flag_team" of loop-value is not "blue":
+                if {flag.general::taken::blue} and {flag.general::drop::blue} is not set:
+                    set {flag.general::taken::blue} to loop-player
+                    set {_t} to flag_convert_team2string("blue")
+                    send "&4&l! &6%loop-player%&cが%{_t}%&cの旗を取った！" to all players
+                    set helmet of loop-player to blue standing banner
+                    set glowing of loop-player to true 
+                    play sound "block.anvil.land" to all players
+                    send title "&a旗をとった！" to {flag.team::red::players::*}
+                    send title "&c旗をとられた！" to {flag.team::blue::players::*}
+            else if {flag.general::taken::red} is loop-player:
+                if {flag.general::taken::blue} and {flag.general::drop::blue} is not set:
+                    add 1 to {flag.general::point::blue}
+                    send "&2&l! &6%loop-player%&aが&b&l青チーム&aに点数を入れた！" to all players
+                    flag_equip(loop-player, "blue")
+                    set glowing of loop-player to false
+                    clear {flag.general::taken::red}
+                else:
+                    send action bar "&4&l! &c自陣の旗がとられているため、点数を入れることができない" to loop-player
+        loop all entities:
+            if loop-entity is an armor stand:
+                if helmet of loop-entity is blue standing banner:
+                    loop all players in radius 2 around loop-entity:
+                        if metadata value "flag_team" of loop-player is not "blue":
+                            kill loop-entity-1
+                            play sound "block.anvil.land" to all players
+                            set helmet of loop-player to blue standing banner
+                            set glowing of loop-player to true
+                            set {flag.general::taken::blue} to loop-player
+                            clear {flag.general::drop::blue}
+                            exit loop
+                        else:
+                            kill loop-entity-1
+                            send "&2&l! &6%loop-player%&aが&b&l青チーム&aの旗を戻した！" to all players
+                            clear {flag.general::drop::blue}
+                            clear {flag.general::taken::blue}
+                else if helmet of loop-entity is red standing banner:
+                    loop all players in radius 2 around loop-entity:
+                        if metadata value "flag_team" of loop-player is not "red":
+                            kill loop-entity-1
+                            play sound "block.anvil.land" to all players
+                            set helmet of loop-player to red standing banner
+                            set glowing of loop-player to true
+                            set {flag.general::taken::red} to loop-player
+                            clear {flag.general::drop::red}
+                            exit loop
+                        else:
+                            kill loop-entity-1
+                            send "&2&l! &6%loop-player%&aが&c&l赤チーム&aの旗を戻した！" to all players
+                            clear {flag.general::drop::red}
+                            clear {flag.general::taken::red}
+
+on shoot:
+    if name of shooter's tool is "&a弓":
+        wait a tick
+        give an arrow to shooter
+
+function flag_join(p: player):
+    set {_red} to size of {flag.team::red::players::*}
+    set {_blue} to size of {flag.team::blue::players::*}
+    if {_red} is less than {_blue}:
+        flag_join_selection({_p}, "red")
+    else:
+        flag_join_selection({_p}, "blue")
+
+function flag_join_selection(p: player, team: text):
+    set {_t} to flag_convert_team2string({_team})
+    if {_team} is "red":
+        set metadata value "flag_team" of {_p} to "red"
+        add {_p} to {flag.team::red::players::*}
+        send "&2&l! &aあなたは%{_t}%&aに参加しました！" to {_p}
+        set {_p}'s tab list name to "&c%{_p}%"
+    else if {_team} is "blue":
+        set metadata value "flag_team" of {_p} to "blue"
+        add {_p} to {flag.team::blue::players::*}
+        send "&2&l! &aあなたは%{_t}%&aに参加しました！" to {_p}
+        set {_p}'s tab list name to "&b%{_p}%"
+    else:
+        send "&4&l! &c参加しようとしたチームは存在しません。" to {_p}
+
+function flag_leave(p: player):
+    clear metadata value "flag_team" of {_p}
+    reset {_p}'s tab list name
+    remove {_p} from {flag.team::red::players::*}
+    remove {_p} from {flag.team::blue::players::*}
+
+function flag_game_stop(p: player):
+    send "&2&l! &aゲームを強制停止しました。" to {_p}
+    send "&4&l! &cゲームは管理者により強制停止されました。" to all players
+    teleport all players to location of {flag.general::lobby}
+    flag_game_reset()
+    loop shuffled all players:
+        reset loop-player's tab list name
+        flag_join(loop-player)
+
+function flag_game_reset():
+    clear {flag.team::red::players::*}
+    clear {flag.team::blue::players::*}
+    clear {flag.general::taken::red}
+    clear {flag.general::taken::blue}
+    clear {flag.general::point::red}
+    clear {flag.general::point::blue}
+    clear {flag.general::drop::blue}
+    clear {flag.general::drop::red}
+    clear {flag.general::timenow}
+    loop all offline players:
+        clear metadata value "flag_team" of loop-value
+        clear metadata value "flag_ks" of loop-value
+        clear loop-value's inventory
+        set glowing of loop-value to false
+    loop all entities:
+        if loop-entity is an armor stand:
+            if helmet of loop-entity is blue standing banner or red standing banner:
+                kill loop-entity
+    set {flag.general::status} to "waiting"
+
+function flag_show_help(p: player):
+    send "&f---------- &7:&8[&b Flag ヘルプ &8]&7: ----------" to {_p}
+    send "&3&l・&b/flag setlobby &8- &7今いる場所をロビーに設定します。" to {_p}
+    send "&3&l・&b/flag setspawn [red | blue] &8- &7チームごとのスポーン位置を設定します。" to {_p}
+    send "&3&l・&b/flag settime <時間> &8- &7制限時間を設定します。(入力なしで無制限)" to {_p}
+    send "&3&l・&b/flag setflag [red | blue] &8- &7チームごとの旗の位置を設定します。" to {_p}
+    send "&3&l・&b/flag setround <数> &8- &7勝利条件の獲得した旗の個数を設定します。" to {_p}
+    send "&3&l・&b/flag start &8- &7ゲームを開始します。" to {_p}
+    send "&3&l・&b/flag stop &8- &7ゲームを停止します。" to {_p}
+
+function flag_set_lobby(p: player):
+    send "&2&l! &aあなたの場所をロビーとして設定しました。" to {_p}
+    set {flag.general::lobby} to location of {_p}
+
+function flag_convert_team2string(team: text) :: text:
+    set {_type::red} to "&c&l赤チーム"
+    set {_type::blue} to "&b&l青チーム"
+    if {_type::%{_team}%} is set:
+        return {_type::%{_team}%}
+    else:
+        return "&7不明なチーム"
+
+function flag_set_spawn(p: player, team: text):
+    set {_t} to flag_convert_team2string({_team})
+    send "&2&l! &aあなたの場所を%{_t}%&aのスポーン位置として設定しました。" to {_p}
+    set {flag.general::spawn::%{_team}%} to location of {_p}
+
+function flag_set_flag(p: player, team: text):
+    set {_t} to flag_convert_team2string({_team})
+    send "&2&l! &aあなたの場所を%{_t}%&aの旗の位置として設定しました。" to {_p}
+    set {flag.general::flag::%{_team}%} to location of {_p}
+
+function flag_set_time(p: player, time: text):
+    if {_time} is not set:
+        send "&2&l! &a制限時間を&a&l&n無制限&aに設定しました。" to {_p}
+        clear {flag.general::time}
+    else:
+        set {_t} to {_time} parsed as integer
+        if {_t} is not set:
+            send "&4&l! &c時間のフォーマットが不明です。" to {_p}
+        else:
+            send "&2&l! &a制限時間を&a&l&n%{_t}%秒&aに設定しました。" to {_p}
+            set {flag.general::time} to {_t}
+
+function flag_set_round(p: player, num: text):
+    set {_t} to {_num} parsed as integer
+    if {_t} is not set:
+        send "&4&l! &c時間のフォーマットが不明です。" to {_p}
+    else:
+        send "&2&l! &a勝利条件の旗数を&a&l&n%{_t}%個&aに設定しました。" to {_p}
+        set {flag.general::round} to {_t}
+
+function flag_game_start(p: player):
+    if {flag.general::status} is not "waiting":
+        send "&4&l! &cゲームのステータスが開始可能ではありません。" to {_p}
+    else:
+        send "&2&l! &aゲームを開始しました。" to {_p}
+        set {flag.general::status} to "starting"
+        send title "" with subtitle "&aゲームを開始します。" to all players
+        set {_n} to 30
+        set {flag.general::temp::remaintime} to 30
+        loop 30 times:
+            if {flag.general::status} is "starting":
+                if {_n} is 20 or 10:
+                    send "&2&l! &aゲーム開始まで&a&l%{_n}%&a秒前..." to all players
+                    play sound "ui.button.click" to all players
+                else if {_n} is between 1 and 5:
+                    send "&2&l! &aゲーム開始まで&6&l%{_n}%秒前&a..." to all players
+                    play sound "ui.button.click" to all players
+                remove 1 from {_n}
+                remove 1 from {flag.general::temp::remaintime}
+                wait 1 second
+            else:
+                exit loop
+        if {flag.general::status} is "starting":
+            set {flag.general::status} to "running"
+
+            if {flag.general::point::red} is not set:
+                set {flag.general::point::red} to 0
+            if {flag.general::point::blue} is not set:
+                set {flag.general::point::blue} to 0
+
+            teleport {flag.team::red::players::*} to location of {flag.general::spawn::red}
+            teleport {flag.team::blue::players::*} to location of {flag.general::spawn::blue}
+            loop {flag.team::red::players::*}:
+                flag_equip(loop-value, "red")
+            loop {flag.team::blue::players::*}:
+                flag_equip(loop-value, "blue")
+            loop all players:
+                set loop-player's max health to 3
+                give unbreakable diamond sword named "&aダイヤの剣" with lore "&71ハート分削ることができる。" to loop-player
+                give unbreakable bow named "&a弓" with lore "&7一発で相手を倒すことができる。" to loop-player
+                give an arrow to loop-player
+                set metadata value "flag_ks" of loop-player to 0
+            
+            if {flag.general::time} is not set:
+                while {flag.general::status} = "running":
+                    add 1 to {flag.general::timenow}
+                    if {flag.general::point::red} >= {flag.general::round}:
+                        flag_game_victory("red")
+                    if {flag.general::point::blue} >= {flag.general::round}: 
+                        flag_game_victory("blue")
+                    wait 1 second
+            else:
+                set {flag.general::timenow} to {flag.general::time}
+                while {flag.general::status} = "running":
+                    if {flag.general::timenow} <= 0:
+                        if {flag.general::point::red} is {flag.general::point::blue}:
+                            flag_game_victory("draw")
+                        else if {flag.general::point::red} > {flag.general::point::blue}:
+                            flag_game_victory("red")
+                        else if {flag.general::point::red} < {flag.general::point::blue}:
+                            flag_game_victory("blue")
+                    remove 1 from {flag.general::timenow}
+                    wait 1 second
+
+function flag_game_victory(team: text):
+    play sound "entity.ender_dragon.ambient" to all players
+    if {_team} is "draw":
+        send title "&6引き分け！" with subtitle "&eDraw!" to all players
+        teleport all players to {flag.general::lobby}
+        flag_game_reset()
+        loop shuffled all players:
+            reset loop-player's tab list name
+            flag_join(loop-player)
+    else:
+        set {_t} to flag_convert_team2string({_team})
+        send title "%{_t}%&6の勝利！" to all players
+        teleport all players to {flag.general::lobby}
+        flag_game_reset()
+        loop shuffled all players:
+            reset loop-player's tab list name
+            flag_join(loop-player)
+
+function flag_equip(p: player, team: text):
+    if {_team} is "red" or "blue":
+        equip {_p} with unbreakable leather helmet
+        equip {_p} with unbreakable leather chestplate
+        equip {_p} with unbreakable leather leggings
+        equip {_p} with unbreakable leather boots
+        
+        if {_team} is "red":
+            dye {_p}'s helmet red
+            dye {_p}'s chestplate red
+            dye {_p}'s leggings red
+            dye {_p}'s boots red
+        else if {_team} is "blue":
+            dye {_p}'s helmet blue
+            dye {_p}'s chestplate blue
+            dye {_p}'s leggings blue
+            dye {_p}'s boots blue
+
+#以下スコアボード処理
+function ffa_scoreboardUpdate(player: player):
+    reset slots numbers between 1 and 16 of skoreboard {_player}
+    set title of skoreboard {_player} to "&7----- &7:&8[ &b&lFlag &8]&7: &7-----"
+    set {_color::*} to "&a" and "&b" and "&c" and "&d" and "&f" and "&1" and "&2" and "&3" and "&4" and "&5" and "&6" and "&7" and "&8" and "&9" and "&0" 
+    loop 11 times:
+        add 1 to {_line}
+        set slot {_line} of skoreboard {_player} to "%{_color::%{_line}%}%"    
+    if {flag.general::status} is "waiting":
+        set slot 10 of skoreboard {_player} to "&f状態: &a待機中"
+        set slot 8 of skoreboard {_player} to "&eゲーム開始まで"
+        set slot 7 of skoreboard {_player} to "&eしばらくお待ちください" 
+        set slot 5 of skoreboard {_player} to "&8¦¦ &7チーム情報"
+        set slot 4 of skoreboard {_player} to "&c&l赤チーム&7: &f%size of {flag.team::red::players::*}%人"
+        set slot 3 of skoreboard {_player} to "&b&l青チーム&7: &f%size of {flag.team::blue::players::*}%人"
+    else if {flag.general::status} is "starting":
+        set slot 10 of skoreboard {_player} to "&f状態: &a開始中"
+        set slot 8 of skoreboard {_player} to "&e%{flag.general::temp::remaintime}%秒後にゲームが"
+        set slot 7 of skoreboard {_player} to "&e開始されます！" 
+        set slot 5 of skoreboard {_player} to "&8¦¦ &7チーム情報"
+        set slot 4 of skoreboard {_player} to "&c&l赤チーム&7: &f%size of {flag.team::red::players::*}%人"
+        set slot 3 of skoreboard {_player} to "&b&l青チーム&7: &f%size of {flag.team::blue::players::*}%人"
+    else if {flag.general::status} is "running":
+        set {_ks} to metadata value "flag_ks" of {_player}
+        set slot 10 of skoreboard {_player} to "&f状態: &a試合中"
+        set slot 8 of skoreboard {_player} to "&8¦¦ &c&l赤チーム"
+        set {_pr} to ""
+        loop {flag.general::point::red} times:
+            set {_pr} to "%{_pr}%&c❚"
+        loop {flag.general::round}-{flag.general::point::red} times:
+            set {_pr} to "%{_pr}%&7❚"
+        set {_pb} to ""
+        loop {flag.general::point::blue} times:
+            set {_pb} to "%{_pb}%&c❚"
+        loop {flag.general::round}-{flag.general::point::blue} times:
+            set {_pb} to "%{_pb}%&7❚"
+        set slot 7 of skoreboard {_player} to "&f&l%{flag.general::point::red}% &7%{_pr}%"
+        set slot 5 of skoreboard {_player} to "&8¦¦ &b&l青チーム"
+        set slot 4 of skoreboard {_player} to "&f&l%{flag.general::point::blue}% &7%{_pb}%"
+        if {flag.general::time} is not set:
+            set slot 2 of skoreboard {_player} to "&f経過時間: &a%{flag.general::timenow}%秒"
+        else:
+            set slot 2 of skoreboard {_player} to "&f残り時間: &a%{flag.general::timenow}%秒"
+        set slot 1 of skoreboard {_player} to "&fキルストリーク: &a%{_ks}%"
+
+every 10 tick:
+    loop all players:
+        ffa_scoreboardUpdate(loop-player)
+
+#以下銃の処理
+#銃のプレイヤーデータリセット
+on join:
+    clear {gun.playerdata::%player%::cooldown::*}
+    clear {gun.playerdata::%player%::*}
+
+on load: #武器の登録処理
+    #登録リセット
+    clear {gun.dname::*}
+    clear {gun.id::*}
+    clear {gun.itemdata::*}
+    clear {gun.cooldown::*}
+    clear {gun.maxammo::*}
+    clear {gun.reloadtime::*}
+    clear {gun.dmg::*}
+    clear {gun.kb::*}
+    clear {gun.ammonum::*}
+    clear {gun.scatter::*}
+    clear {gun.dec_di::*}
+    clear {gun.dec_dmg::*}
+
+    #ショットガンの登録
+    set {_gun.id} to "shotgun"
+    set {gun.dname::%{_gun.id}%} to "&e&lショットガン"
+    set {gun.id::%{gun.dname::%{_gun.id}%}%} to {_gun.id}
+    set {gun.itemdata::%{_gun.id}%} to golden axe named "&e&l%{gun.dname::%{_gun.id}%}%"
+    set {gun.cooldown::%{_gun.id}%} to 20
+    set {gun.maxammo::%{_gun.id}%} to 1
+    set {gun.reloadtime::%{_gun.id}%} to 40
+    set {gun.dmg::%{_gun.id}%} to 4
+    set {gun.kb::%{_gun.id}%} to 0.5
+    set {gun.ammonum::%{_gun.id}%} to 20
+    set {gun.scatter::%{_gun.id}%} to 0.5
+    set {gun.dec_di::%{_gun.id}%} to 3
+    set {gun.dec_dmg::%{_gun.id}%} to 0.5
+    set {gun.type::%{_gun.id}%} to "snowball"
+    set {gun.ammospeed::%{_gun.id}%} to 3
+    set {gun.dissapper::%{_gun.id}%} to true
+
+#一般コマンド
+command /gun [<text>] [<text>]:
+    permission: admin
+    trigger:
+        if arg-1 is not set:
+            gun_show_help(player)
+        else if arg-2 is not set:   
+            gun_show_help(player)
+        else if arg-1 is "get":
+            if {gun.dname::%arg-2%} is set:
+                send "%{gun.dname::%arg-2%}%&aを入手しました。" to player
+                give {gun.itemdata::%arg-2%} to player
+                set {gun.playerdata.%player%::ammo::%arg-2%} to {gun.maxammo::%arg-2%}
+            else:
+                send "&cその銃は存在しません。" to player
+
+#Tab補填の定義
+on tab complete of "/gun":
+    if tab arg-1 is not set:
+        add "get" to tab completions for position 1
+    else if tab arg-2 is not set:
+        loop {gun.id::*}:
+            add loop-value to tab completions for position 2
+
+#関数定義
+function gun_show_help(p: player):
+    send "&r" to {_p}
+    send "&a&l/gunの使い方" to {_p}
+    send "&3&l・&b/gun get <名前> &7- &f銃を入手します。" to {_p}
+
+#以下全武器に関する処理
+
+on right click:
+    loop {gun.itemdata::*}:
+        if player's tool is loop-value:
+            if {gun.type::%{gun.id::%name of loop-value%}%} is set:
+                if {gun.playerdata.%player%::ammo::%{gun.id::%name of loop-value%}%} is more than 0:
+                    if {gun.playerdata::%player%::cooldown::%{gun.id::%name of loop-value%}%} is not set:
+                        remove 1 from {gun.playerdata.%player%::ammo::%{gun.id::%name of loop-value%}%}
+                        set {gun.playerdata::%player%::cooldown::%{gun.id::%name of loop-value%}%} to true
+                        if {gun.ammonum::%{gun.id::%name of loop-value%}%} is 1:
+                            if {gun.cooldown::%{gun.id::%name of loop-value%}%} is 0:
+                                loop 10 times:
+                                    if {gun.playerdata.%player%::ammo::%{gun.id::%name of loop-value-1%}%} is more than 0:
+                                        if {gun.type::%{gun.id::%name of loop-value-1%}%} is "snowball":
+                                            shoot snowball at speed {gun.ammospeed::%{gun.id::%name of loop-value-1%}%}
+                                        else if {gun.type::%{gun.id::%name of loop-value-1%}%} is "arrow":
+                                            shoot arrow at speed {gun.ammospeed::%{gun.id::%name of loop-value-1%}%}
+                                        play sound "entity.zombie.attack_wooden_door" at location of player
+                                        remove 1 from {gun.playerdata.%player%::ammo::%{gun.id::%name of loop-value-1%}%}
+                                        wait 2 tick
+                            else:
+                                if {gun.type::%{gun.id::%name of loop-value%}%} is "snowball":
+                                    shoot snowball at speed {gun.ammospeed::%{gun.id::%name of loop-value%}%}
+                                else if {gun.type::%{gun.id::%name of loop-value%}%} is "arrow":
+                                    shoot arrow at speed {gun.ammospeed::%{gun.id::%name of loop-value%}%}
+                                else if {gun.type::%{gun.id::%name of loop-value%}%} is "fireball":
+                                    shoot fireball at speed {gun.ammospeed::%{gun.id::%name of loop-value%}%}
+                                play sound "entity.zombie.attack_wooden_door" at location of player
+                        else:
+                            loop {gun.ammonum::%{gun.id::%name of loop-value%}%} times:
+                                set {_v} to vector from yaw player's yaw and pitch player's pitch
+                                set {_v2} to {_v}
+                                set {_rx} to random number between 0 and {gun.scatter::%{gun.id::%name of loop-value-1%}%}
+                                set {_ry} to random number between 0 and {gun.scatter::%{gun.id::%name of loop-value-1%}%}
+                                set {_rz} to random number between 0 and {gun.scatter::%{gun.id::%name of loop-value-1%}%}
+                                remove {_rx} from x of {_v2}
+                                remove {_ry} from y of {_v2}
+                                remove {_rz} from z of {_v2}
+                                if {gun.type::%{gun.id::%name of loop-value-1%}%} is "snowball":
+                                    shoot snowball at speed {gun.ammospeed::%{gun.id::%name of loop-value-1%}%} {_v2}
+                                else if {gun.type::%{gun.id::%name of loop-value-1%}%} is "arrow":
+                                    shoot arrow at speed {gun.ammospeed::%{gun.id::%name of loop-value-1%}%} {_v2}
+                                play sound "entity.zombie.attack_wooden_door" at location of player
+                        if {gun.dissapper::%{gun.id::%name of loop-value%}%} is not set:
+                            loop {gun.cooldown::%{gun.id::%name of loop-value%}%} times:
+                                wait 1 tick
+                        else:
+                            remove player's tool from player's inventory
+                        clear {gun.playerdata::%player%::cooldown::%{gun.id::%name of loop-value%}%}
+                else:
+                    if {gun.playerdata.%player%::reload::%{gun.id::%name of loop-value%}%} is not set:
+                        set {gun.playerdata.%player%::reload::%{gun.id::%name of loop-value%}%} to {gun.reloadtime::%{gun.id::%name of loop-value%}%}
+                        loop {gun.reloadtime::%{gun.id::%name of loop-value%}%} times:
+                            remove 1 from {gun.playerdata.%player%::reload::%{gun.id::%name of loop-value-1%}%}
+                            wait 1 tick
+                        clear {gun.playerdata.%player%::reload::%{gun.id::%name of loop-value%}%}
+                        set {gun.playerdata.%player%::ammo::%{gun.id::%name of loop-value%}%} to {gun.maxammo::%{gun.id::%name of loop-value%}%}
+                exit loop
+
+
+every tick:
+    loop all players:
+        loop {gun.itemdata::*}:
+            if loop-player's tool is loop-value-2:
+                if {gun.playerdata.%loop-player%::ammo::%{gun.id::%name of loop-value-2%}%} is not set:
+                    set {gun.playerdata.%loop-player%::ammo::%{gun.id::%name of loop-value-2%}%} to {gun.maxammo::%{gun.id::%name of loop-value-2%}%}
+                if {gun.type::%{gun.id::%name of loop-value-2%}%} is set:
+                    if {gun.playerdata.%loop-player%::reload::%{gun.id::%name of loop-value-2%}%} is not set:
+                        send action bar "&e&l%{gun.dname::%{gun.id::%name of loop-value-2%}%}% &3- &7弾薬: &c%{gun.playerdata.%loop-player%::ammo::%{gun.id::%name of loop-value-2%}%}%&7/%{gun.maxammo::%{gun.id::%name of loop-value-2%}%}%" to loop-player
+                    else:
+                        send action bar "&e&l%{gun.dname::%{gun.id::%name of loop-value-2%}%}% &3- &7弾薬: &cリロード中... %{gun.playerdata.%loop-player%::reload::%{gun.id::%name of loop-value-2%}%}%" to loop-player
+                    exit loop
+                else:
+                    send action bar "&e&l%{gun.dname::%{gun.id::%name of loop-value-2%}%}% &3- &7弾薬: &c∞" to loop-player
+
+on damage:
+    projectile exists
+    projectile is a snowball
+    if metadata value "gun" of projectile is set:
+        play sound "entity.experience_orb.pickup" to attacker
+        set {_v} to vector of projectile
+        set y of {_v} to (y of vector of projectile)-(y of vector of victim)
+        set {_dis} to distance between victim and (metadata value "gun_dloc" of projectile)
+        if {gun.dec_di::%metadata value "gun" of projectile%} is set:
+            if {gun.dec_dmg::%metadata value "gun" of projectile%} is set:
+                if mod({_dis}, {gun.dec_di::%metadata value "gun" of projectile%}) is more than 0:
+                    set {_dec} to (({_dis}-mod({_dis}, {gun.dec_di::%metadata value "gun" of projectile%}))/{gun.dec_di::%metadata value "gun" of projectile%})*{gun.dec_dmg::%metadata value "gun" of projectile%}
+        set {_dmg} to {gun.dmg::%metadata value "gun" of projectile%}-{_dec}
+        if {_dmg} is less than 0:
+            set {_dmg} to 0
+        else:
+            push victim {_v} at speed {gun.kb::%metadata value "gun" of projectile%}
+        set damage to {_dmg}
+
+on damage:
+    attacker is a player
+    loop {gun.itemdata::*}:
+        if loop-value is attacker's tool:
+            if {gun.type::%{gun.id::%name of loop-value%}%} is set:
+                add 1 to {_n}
+    if {_n} is set:
+        cancel event
+
+on shoot:
+    loop {gun.itemdata::*}:
+        if shooter's tool is loop-value:
+            set metadata value "gun" of event-projectile to "%{gun.id::%name of loop-value%}%"
+            set metadata value "gun_dloc" of event-projectile to location of shooter
+            if {gun.type::%{gun.id::%name of loop-value%}%} is "fireball":
+                while event-projectile is alive:
+                    wait 1 second
+                create an explosion of force 5 at event-projectile
